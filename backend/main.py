@@ -4,6 +4,10 @@ from database import Base, engine
 from routers import candidates  , tasks
 import models
 from routers import interviews
+from routers.positions import router as positions_router
+from routers.tasks import router as tasks_router
+from routers.candidates import router as candidates_router
+from routers.interviews import router as interviews_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -21,8 +25,7 @@ app.add_middleware(
 )
 
 app.include_router(candidates.router)
-
-
+app.include_router(positions_router)
 app.include_router(tasks.router)
 app.include_router(interviews.router)
 

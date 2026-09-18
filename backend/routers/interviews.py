@@ -25,13 +25,14 @@ def create_interview(
     db: Session = Depends(get_db)
 ):
     interview = Interview(
-        candidate_id=data.candidate_id,
-        interview_date=data.interview_date,
-        interviewer=data.interviewer,
-        mode=data.mode,
-        status=data.status,
-        notes=data.notes
-    )
+    candidate_id=data.candidate_id,
+    position=data.position,
+    interview_date=data.interview_date,
+    interviewer=data.interviewer,
+    mode=data.mode,
+    status=data.status,
+    notes=data.notes
+)
 
     db.add(interview)
     db.commit()

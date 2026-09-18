@@ -70,6 +70,7 @@ class TaskResponse(TaskCreate):
 
 class InterviewCreate(BaseModel):
     candidate_id: int
+    position: str
     interview_date: datetime
     interviewer: Optional[str] = "Virtual HR"
     mode: str = "Video"
@@ -78,6 +79,8 @@ class InterviewCreate(BaseModel):
 
 
 class InterviewUpdate(BaseModel):
+    candidate_id: Optional[int] = None
+    position: Optional[str] = None
     interview_date: Optional[datetime] = None
     interviewer: Optional[str] = None
     mode: Optional[str] = None
@@ -88,6 +91,7 @@ class InterviewUpdate(BaseModel):
 class InterviewResponse(BaseModel):
     id: int
     candidate_id: int
+    position: str
     interview_date: datetime
     interviewer: Optional[str]
     mode: str

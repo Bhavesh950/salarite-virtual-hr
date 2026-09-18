@@ -35,6 +35,7 @@ interface AppContextType {
   tasks: Task[];
   candidates: Candidate[];
   interviews: Interview[];
+  positions: string[];
   activities: ActivityItem[];
   chatMessages: ChatMessage[];
   aiWorkingTasks: typeof AI_CURRENT_TASKS;
@@ -76,10 +77,29 @@ interface AppContextType {
     skills: string[];
     experience: string;
     notes?: string;
- }) => Promise<Candidate>;
-  updateCandidateStatus: (candidateId: string, newStatus: CandidateStatus) => void;
+ }) => Promise<Candidate | null>;
 
-  scheduleInterview: (data: {
+ updateCandidateStatus: (
+  candidateId: string,
+  newStatus: CandidateStatus
+) => Promise<void>;
+
+  updateCandidate: (
+  candidateId: string,
+  data: {
+    name: string;
+    email: string;
+    phone: string;
+    position: string;
+    experience: string;
+    skills: string;
+    notes: string;
+  }
+) => Promise<boolean>;
+
+deleteCandidate: (candidateId: string) => Promise<boolean>;
+
+ scheduleInterview: (data: {
   candidateId: string;
   candidateName: string;
   position: string;
@@ -88,6 +108,19 @@ interface AppContextType {
   mode: InterviewMode;
   notes?: string;
 }) => Promise<Interview | null>;
+
+updateInterview: (
+  interviewId: string,
+  data: {
+    candidate_id: number;
+    interview_date: string;
+    mode: InterviewMode;
+    status: InterviewStatus;
+    notes?: string;
+    position: string;
+  }
+) => Promise<any>;
+  deleteInterview: (interviewId: string) => Promise<void>;
   updateInterviewStatus: (interviewId: string, newStatus: InterviewStatus) => void;
 
   sendUserChatMessage: (text: string) => void;
@@ -108,8 +141,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   });
 
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [candidates, setCandidates] = useState<Candidate[]>(INITIAL_CANDIDATES);
-  const [interviews, setInterviews] = useState<Interview[]>(INITIAL_INTERVIEWS);
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [interviews, setInterviews] = useState<Interview[]>([]);
+  const [positions, setPositions] = useState<string[]>([]);
   const [activities, setActivities] = useState<ActivityItem[]>(INITIAL_ACTIVITIES);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_CHAT_MESSAGES);
   const [aiWorkingTasks, setAiWorkingTasks] = useState(AI_CURRENT_TASKS);
@@ -125,21 +159,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
   const loadData = async () => {
-
-    // =========================
-    // LOAD TASKS
-    // =========================
     try {
-      const tasksRes = await fetch(`${API_URL}/tasks/`);
+      // =========================
+      // LOAD ALL DATA
+      // =========================
+      const [tasksRes, candidatesRes, interviewsRes , positionsRes] = await Promise.all([
+        fetch(`${API_URL}/tasks/`),
+        fetch(`${API_URL}/candidates/`),
+        fetch(`${API_URL}/interviews/`),
+        fetch(`${API_URL}/positions/`)
+      ]);
 
       if (!tasksRes.ok) {
         throw new Error("Failed to fetch tasks");
       }
 
+      if (!candidatesRes.ok) {
+        throw new Error("Failed to fetch candidates");
+      }
+
+      if (!interviewsRes.ok) {
+        throw new Error("Failed to fetch interviews");
+      }
+
       const tasksData = await tasksRes.json();
+      const candidatesData = await candidatesRes.json();
+      const interviewsData = await interviewsRes.json();
+      const positionsData = await positionsRes.json();
+      setPositions(positionsData);
 
       console.log("Tasks from API:", tasksData);
+      console.log("Candidates from API:", candidatesData);
+      console.log("Interviews from API:", interviewsData);
 
+      // =========================
+      // SET TASKS
+      // =========================
       setTasks(
         tasksData.map((t: any) => ({
           id: String(t.id),
@@ -161,25 +216,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }))
       );
 
-    } catch (error) {
-      console.error("Tasks API Error:", error);
-    }
-
-
-    // =========================
-    // LOAD CANDIDATES
-    // =========================
-    try {
-      const candidatesRes = await fetch(`${API_URL}/candidates/`);
-
-      if (!candidatesRes.ok) {
-        throw new Error("Failed to fetch candidates");
-      }
-
-      const candidatesData = await candidatesRes.json();
-
-      console.log("Candidates from API:", candidatesData);
-
+      // =========================
+      // SET CANDIDATES
+      // =========================
       setCandidates(
         candidatesData.map((c: any) => ({
           id: String(c.id),
@@ -203,8 +242,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }))
       );
 
+      // =========================
+      // SET INTERVIEWS
+      // =========================
+      setInterviews(
+        interviewsData.map((i: any) => {
+          const candidate = candidatesData.find(
+            (c: any) => String(c.id) === String(i.candidate_id)
+          );
+
+          const interviewDate = new Date(i.interview_date);
+
+          return {
+            id: String(i.id),
+            candidateId: String(i.candidate_id),
+            candidateName: candidate?.name || "Unknown Candidate",
+            position: i.position || candidate?.position || "Unknown Position",
+
+            date: interviewDate.toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            }),
+
+            time: interviewDate.toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+
+            mode: i.mode,
+            status: i.status,
+            interviewer: i.interviewer || "Virtual HR",
+            notes: i.notes || "",
+          };
+        })
+      );
+
     } catch (error) {
-      console.error("Candidates API Error:", error);
+      console.error("API Load Error:", error);
     }
   };
 
@@ -509,8 +584,12 @@ const addCandidate = useCallback(
       });
 
       if (!response.ok) {
-        throw new Error('Failed to create candidate');
-      }
+  const errorData = await response.json().catch(() => null);
+
+  throw new Error(
+    errorData?.detail || 'Failed to create candidate'
+  );
+}
 
       const createdCandidate = await response.json();
 
@@ -547,16 +626,29 @@ const addCandidate = useCallback(
 
       return newCand;
     } catch (error) {
-      console.error('Candidate creation failed:', error);
+  console.error("Candidate creation failed:", error);
 
-      addToast({
-        type: 'error',
-        title: 'Add Candidate Failed',
-        message: 'Unable to add the candidate.',
-      });
+  const errorMessage =
+    error instanceof Error
+      ? error.message
+      : "Unable to add the candidate.";
 
-      throw error;
-    }
+  const isDuplicate =
+    errorMessage.toLowerCase().includes("already exists") ||
+    errorMessage.toLowerCase().includes("email");
+
+  addToast({
+    type: "info",
+    title: isDuplicate
+      ? "Candidate Already Exists"
+      : "Unable to Add Candidate",
+    message: isDuplicate
+      ? "A candidate with this email address is already registered."
+      : errorMessage,
+  });
+
+  return null;
+}
   },
   [addToast, logActivity]
 );
@@ -631,6 +723,158 @@ const addCandidate = useCallback(
   [candidates, addToast, logActivity]
 );
 
+const updateCandidate = useCallback(
+  async (
+    candidateId: string,
+    data: {
+      name: string;
+      email: string;
+      phone: string;
+      position: string;
+      experience: string;
+      skills: string;
+      notes: string;
+    }
+  ) => {
+    try {
+      const backendCandidateId = Number(candidateId);
+
+      if (Number.isNaN(backendCandidateId)) {
+        throw new Error("Invalid candidate ID");
+      }
+
+      const response = await fetch(
+        `${API_URL}/candidates/${backendCandidateId}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: data.name,
+            email: data.email,
+            phone: data.phone,
+            position: data.position,
+            experience: data.experience,
+            skills: data.skills,
+            notes: data.notes,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+
+        throw new Error(
+          errorData?.detail || "Failed to update candidate"
+        );
+      }
+
+      const updatedCandidate = await response.json();
+
+      setCandidates((prev) =>
+        prev.map((c) =>
+          c.id === candidateId
+            ? {
+                ...c,
+                name: updatedCandidate.name,
+                email: updatedCandidate.email,
+                phone: updatedCandidate.phone || "",
+                appliedFor: updatedCandidate.position,
+                experience: updatedCandidate.experience || "",
+                skills: updatedCandidate.skills
+                  ? updatedCandidate.skills
+                      .split(",")
+                      .map((s: string) => s.trim())
+                      .filter(Boolean)
+                  : [],
+                notes: updatedCandidate.notes || "",
+              }
+            : c
+        )
+      );
+
+      addToast({
+        type: "success",
+        title: "Candidate Updated",
+        message: `${updatedCandidate.name} updated successfully.`,
+      });
+
+      return true;
+    } catch (error) {
+      console.error("Candidate update failed:", error);
+
+      addToast({
+        type: "error",
+        title: "Update Failed",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Unable to update candidate.",
+      });
+
+      return false;
+    }
+  },
+  [addToast]
+);
+
+
+const deleteCandidate = useCallback(
+  async (candidateId: string) => {
+    try {
+      const backendCandidateId = Number(candidateId);
+
+      if (Number.isNaN(backendCandidateId)) {
+        throw new Error("Invalid candidate ID");
+      }
+
+      const response = await fetch(
+        `${API_URL}/candidates/${backendCandidateId}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+
+        throw new Error(
+          errorData?.detail || "Failed to delete candidate"
+        );
+      }
+
+      setCandidates((prev) =>
+        prev.filter((c) => c.id !== candidateId)
+      );
+
+      setSelectedCandidate(null);
+
+      addToast({
+        type: "success",
+        title: "Candidate Deleted",
+        message: "Candidate deleted successfully.",
+      });
+
+      return true;
+    } catch (error) {
+      console.error("Candidate deletion failed:", error);
+
+      addToast({
+        type: "error",
+        title: "Delete Failed",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Unable to delete candidate.",
+      });
+
+      return false;
+    }
+  },
+  [addToast]
+);
+
   // Interview actions
  const scheduleInterview = useCallback(
   async (data: {
@@ -643,13 +887,18 @@ const addCandidate = useCallback(
     notes?: string;
   }) => {
     try {
+      // -----------------------------------------
+      // 1. Convert frontend candidate ID to DB ID
+      // -----------------------------------------
       const backendCandidateId = Number(data.candidateId);
 
       if (Number.isNaN(backendCandidateId)) {
         throw new Error("Invalid candidate ID");
       }
 
-      // Convert Today/Tomorrow/date + time into backend datetime
+      // -----------------------------------------
+      // 2. Convert date + time into datetime
+      // -----------------------------------------
       let interviewDate = new Date();
 
       const lowerDate = data.date.toLowerCase();
@@ -685,31 +934,73 @@ const addCandidate = useCallback(
         interviewDate.setHours(hours, minutes, 0, 0);
       }
 
-      const response = await fetch(`${API_URL}/interviews/`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          candidate_id: backendCandidateId,
-          interview_date: interviewDate.toISOString(),
-          interviewer: "Virtual HR + Hiring Lead",
-          mode: data.mode,
-          status: "Scheduled",
-          notes: data.notes || "",
-        }),
-      });
+      // -----------------------------------------
+      // 3. Create Interview in backend
+      // -----------------------------------------
+      const interviewResponse = await fetch(
+        `${API_URL}/interviews/`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            candidate_id: backendCandidateId,
+            position: data.position,
+            interview_date: `${interviewDate.getFullYear()}-${String(
+              interviewDate.getMonth() + 1
+            ).padStart(2, "0")}-${String(interviewDate.getDate()).padStart(2, "0")}T${String(
+              interviewDate.getHours()
+            ).padStart(2, "0")}:${String(interviewDate.getMinutes()).padStart(2, "0")}:00`,
+            interviewer: "Virtual HR + Hiring Lead",
+            mode: data.mode,
+            status: "Scheduled",
+            notes: data.notes || "",
+          }),
+        }
+      );
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
+      if (!interviewResponse.ok) {
+        const errorData = await interviewResponse
+          .json()
+          .catch(() => null);
 
         throw new Error(
           errorData?.detail || "Failed to schedule interview"
         );
       }
 
-      const backendInterview = await response.json();
+      const backendInterview = await interviewResponse.json();
 
+      // -----------------------------------------
+      // 4. Update Candidate status in BACKEND
+      // -----------------------------------------
+      const candidateResponse = await fetch(
+        `${API_URL}/candidates/${backendCandidateId}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            status: "Interview",
+          }),
+        }
+      );
+
+      if (!candidateResponse.ok) {
+        const errorData = await candidateResponse
+          .json()
+          .catch(() => null);
+
+        throw new Error(
+          errorData?.detail || "Interview created but candidate status update failed"
+        );
+      }
+
+      // -----------------------------------------
+      // 5. Create frontend Interview object
+      // -----------------------------------------
       const newInterview: Interview = {
         id: String(backendInterview.id),
         candidateId: String(backendInterview.candidate_id),
@@ -720,13 +1011,19 @@ const addCandidate = useCallback(
         mode: data.mode,
         status: backendInterview.status || "Scheduled",
         interviewer:
-          backendInterview.interviewer || "Virtual HR + Hiring Lead",
-        notes: backendInterview.notes || data.notes,
+          backendInterview.interviewer ||
+          "Virtual HR + Hiring Lead",
+        notes: backendInterview.notes || data.notes || "",
       };
 
+      // -----------------------------------------
+      // 6. Update Interviews UI
+      // -----------------------------------------
       setInterviews((prev) => [newInterview, ...prev]);
 
-      // Update candidate status locally
+      // -----------------------------------------
+      // 7. Update Candidate UI
+      // -----------------------------------------
       setCandidates((prev) =>
         prev.map((c) =>
           c.id === data.candidateId
@@ -739,6 +1036,9 @@ const addCandidate = useCallback(
         )
       );
 
+      // -----------------------------------------
+      // 8. Activity log
+      // -----------------------------------------
       logActivity(
         "Virtual HR scheduled an interview",
         `${data.candidateName} — ${data.position} (${data.mode} Mode)`,
@@ -746,6 +1046,9 @@ const addCandidate = useCallback(
         "Scheduled"
       );
 
+      // -----------------------------------------
+      // 9. Success toast
+      // -----------------------------------------
       addToast({
         type: "success",
         title: "Interview Scheduled",
@@ -759,7 +1062,10 @@ const addCandidate = useCallback(
       addToast({
         type: "error",
         title: "Interview Scheduling Failed",
-        message: "Unable to schedule the interview.",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Unable to schedule the interview.",
       });
 
       return null;
@@ -768,160 +1074,323 @@ const addCandidate = useCallback(
   [addToast, logActivity]
 );
 
-  const updateInterviewStatus = useCallback(
-    (interviewId: string, newStatus: InterviewStatus) => {
-      setInterviews((prev) =>
-        prev.map((i) => (i.id === interviewId ? { ...i, status: newStatus } : i))
+const updateInterview = useCallback(
+  async (
+    interviewId: string,
+    data: {
+      candidate_id: number;
+      interview_date: string;
+      mode: InterviewMode;
+      status: InterviewStatus;
+      notes?: string;
+      position: string;
+    }
+  ) => {
+    try {
+      // =========================
+      // 1. UPDATE INTERVIEW
+      // =========================
+      const response = await fetch(
+        `${API_URL}/interviews/${Number(interviewId)}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            candidate_id: data.candidate_id,
+            interview_date: data.interview_date,
+            position: data.position,
+            mode: data.mode,
+            status: data.status,
+            notes: data.notes || "",
+          }),
+        }
       );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(
+          errorData?.detail || "Failed to update interview"
+        );
+      }
+
+      const updated = await response.json();
+
+      // =========================
+      // 2. FIND NEW CANDIDATE
+      // =========================
+      const candidate = candidates.find(
+        (c) => String(c.id) === String(data.candidate_id)
+      );
+
+      // =========================
+      // 3. UPDATE POSITION
+      // =========================
+      // Position belongs to Candidate, not Interview.
+      // If the position was edited, update candidate position too.
+      if (candidate) {
+        const candidateUpdateResponse = await fetch(
+          `${API_URL}/candidates/${Number(data.candidate_id)}`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              position: candidate.appliedFor,
+            }),
+          }
+        );
+
+        // We don't fail the whole interview update if
+        // candidate position is already the same.
+        if (!candidateUpdateResponse.ok) {
+          console.warn("Candidate position update failed");
+        }
+      }
+
+      // =========================
+      // 4. UPDATE LOCAL INTERVIEW
+      // =========================
+      const updatedDate = new Date(data.interview_date);
+
+      setInterviews((prev) =>
+  prev.map((i) =>
+    i.id === interviewId
+      ? {
+          ...i,
+          candidateId: String(updated.candidate_id),
+          position: updated.position || i.position,
+          mode: updated.mode,
+          status: updated.status,
+          notes: updated.notes || "",
+          date: new Date(updated.interview_date).toLocaleDateString(
+            "en-US",
+            {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            }
+          ),
+          time: new Date(updated.interview_date).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        }
+      : i
+  )
+);
+
+      // =========================
+      // 5. UPDATE LOCAL CANDIDATE
+      // =========================
+      if (candidate) {
+  setCandidates((prev) =>
+    prev.map((c) =>
+      c.id === String(data.candidate_id)
+        ? {
+            ...c,
+            appliedFor: data.position,
+          }
+        : c
+    )
+  );
+}
+
+      addToast({
+        type: "success",
+        title: "Interview Updated",
+        message: "Interview details updated successfully.",
+      });
+
+      return updated;
+    } catch (error) {
+      console.error("Interview update failed:", error);
+
+      addToast({
+        type: "error",
+        title: "Update Failed",
+        message: "Unable to update interview.",
+      });
+
+      return null;
+    }
+  },
+  [candidates, addToast]
+);
+
+const deleteInterview = useCallback(
+  async (interviewId: string) => {
+    try {
+      const response = await fetch(
+        `${API_URL}/interviews/${Number(interviewId)}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to delete interview");
+      }
+
+      setInterviews((prev) =>
+        prev.filter((i) => i.id !== interviewId)
+      );
+
+      addToast({
+        type: "success",
+        title: "Interview Deleted",
+        message: "Interview deleted successfully.",
+      });
+    } catch (error) {
+      console.error("Interview deletion failed:", error);
+
+      addToast({
+        type: "error",
+        title: "Delete Failed",
+        message: "Unable to delete interview.",
+      });
+    }
+  },
+  [addToast]
+);
+
+  const updateInterviewStatus = useCallback(
+  async (interviewId: string, newStatus: InterviewStatus) => {
+    try {
+      // 1. Update backend/database
+      const response = await fetch(
+        `${API_URL}/interviews/${Number(interviewId)}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            status: newStatus,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+
+        throw new Error(
+          errorData?.detail || "Failed to update interview status"
+        );
+      }
+
+      // 2. Update frontend state
+      setInterviews((prev) =>
+        prev.map((i) =>
+          i.id === interviewId
+            ? { ...i, status: newStatus }
+            : i
+        )
+      );
+
+      // 3. Activity + toast
       const target = interviews.find((i) => i.id === interviewId);
+
       if (target) {
         logActivity(
-          'Interview status updated',
+          "Interview status updated",
           `${target.candidateName} — Interview is now ${newStatus}`,
-          'interview',
+          "interview",
           newStatus
         );
+
         addToast({
-          type: 'info',
-          title: 'Interview Status',
+          type: "success",
+          title: "Interview Status Updated",
           message: `Interview marked as ${newStatus}.`,
         });
       }
-    },
-    [interviews, addToast, logActivity]
-  );
+    } catch (error) {
+      console.error("Interview status update failed:", error);
 
-  // AI Chat and Interactive Commands
+      addToast({
+        type: "error",
+        title: "Status Update Failed",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Unable to update interview status.",
+      });
+    }
+  },
+  [interviews, addToast, logActivity]
+);
+
   const sendUserChatMessage = useCallback(
     (text: string) => {
-      if (!text.trim()) return;
-
-      const userMsg: ChatMessage = {
+      const userMessage: ChatMessage = {
         id: `MSG-${Date.now()}`,
         sender: 'user',
-        text: text.trim(),
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        text,
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
       };
 
-      setChatMessages((prev) => [...prev, userMsg]);
+      setChatMessages((prev) => [...prev, userMessage]);
       setAiStatus('processing');
 
-      // Intelligent natural language handling for demo employer
       const lower = text.toLowerCase();
 
-      setTimeout(async () => {
+      setTimeout(() => {
         setAiStatus('online');
 
-        if (lower.includes('schedule') && (lower.includes('rahul') || lower.includes('interview'))) {
-          // Trigger interview scheduling flow
-          if (lower.includes('video') || lower.includes('voice') || lower.includes('chat')) {
-            const mode: InterviewMode = lower.includes('voice')
-              ? 'Voice'
-              : lower.includes('chat')
-              ? 'Chat'
-              : 'Video';
+        let aiResponse: ChatMessage;
 
-            const created = await scheduleInterview({
-              candidateId: 'CAN-001',
-              candidateName: 'Rahul Sharma',
-              position: 'Python Developer',
-              date: 'Tomorrow',
-              time: '11:00 AM',
-              mode,
-            });
-            
-            if (!created) {
-              return;
-            }
-
-            const aiResponse: ChatMessage = {
-              id: `MSG-${Date.now() + 1}`,
-              sender: 'ai',
-              text: `Done! I've scheduled Rahul Sharma's interview for tomorrow at 11:00 AM. Calendar invite and preparation dossier have been automatically sent.`,
-              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              actionCard: {
-                type: 'interview_confirm',
-                candidate: 'Rahul Sharma',
-                position: 'Python Developer',
-                date: 'Tomorrow',
-                time: '11:00 AM',
-                mode,
-                interviewId: created.id,
-              },
-            };
-            setChatMessages((prev) => [...prev, aiResponse]);
-          } else {
-            const aiResponse: ChatMessage = {
-              id: `MSG-${Date.now() + 1}`,
-              sender: 'ai',
-              text: `Sure. I found Rahul Sharma in your candidate list (Python Developer, 94% match). What interview mode would you like?`,
-              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                modeOptions: true,
-            };
-            setChatMessages((prev) => [...prev, aiResponse]);
-         }
-        }
-        else if (lower.includes('assign') || lower.includes('task')) {
-          const newTask = await addTask({
-            title: 'Review candidate profiles for engineering',
-            description: 'Automated AI scoring and profile summarization.',
-            candidateName: 'Priya Mehta',
-            candidateId: 'CAN-002',
-            priority: 'High',
-            assignedTo: 'Virtual HR',
-            dueDate: 'Tomorrow',
-          });
-          if (newTask) {
-            const aiResponse: ChatMessage = {
-              id: `MSG-${Date.now() + 1}`,
-              sender: 'ai',
-              text: `Task assigned successfully! I have added "${newTask.title}" to my priority queue and will begin processing immediately.`,
-              timestamp: new Date().toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              }),
-              actionCard: {
-                type: 'task_confirm',
-                taskTitle: newTask.title,
-                candidate: newTask.candidateName,
-                priority: newTask.priority,
-              },
-            };
-            setChatMessages((prev) => [...prev, aiResponse]);
-        } else if (lower.includes('pending') || lower.includes('tasks')) {
-          const pendingTasks = tasks.filter((t) => t.status !== 'Completed');
-          const aiResponse: ChatMessage = {
+        if (lower.includes('interview')) {
+          aiResponse = {
             id: `MSG-${Date.now() + 1}`,
             sender: 'ai',
-            text: `You currently have ${pendingTasks.length} pending tasks. I am actively screening resumes and coordinating 2 interview schedules. Would you like me to expedite the high-priority screenings?`,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            quickReplies: ['Yes, expedite high priority', 'Schedule an interview', 'View all tasks'],
+            text: `Sure. I can help you schedule and manage candidate interviews. Please select the interview mode you want.`,
+            timestamp: new Date().toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
           };
-          setChatMessages((prev) => [...prev, aiResponse]);
-        }
-        } else if (lower.includes('add candidate') || lower.includes('candidate')) {
-          const aiResponse: ChatMessage = {
+        } else if (lower.includes('task')) {
+          aiResponse = {
             id: `MSG-${Date.now() + 1}`,
             sender: 'ai',
-            text: `You can add a candidate manually using the "+ Add Candidate" button, or I can import an applicant from an inbound resume PDF. Would you like to open the candidate registration form?`,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            quickReplies: ['Open Add Candidate modal', 'Show Candidate List'],
+            text: `I can help you create and manage recruitment tasks. You can open the task form to assign a new task.`,
+            timestamp: new Date().toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
           };
-          setChatMessages((prev) => [...prev, aiResponse]);
+        } else if (lower.includes('candidate')) {
+          aiResponse = {
+            id: `MSG-${Date.now() + 1}`,
+            sender: 'ai',
+            text: `I can help you manage candidates, review profiles, and update candidate status.`,
+            timestamp: new Date().toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
+          };
         } else {
-          // General friendly helpful response
-          const aiResponse: ChatMessage = {
+          aiResponse = {
             id: `MSG-${Date.now() + 1}`,
             sender: 'ai',
-            text: `Understood. I am tracking 24 recruitment operations. You can ask me to schedule interviews, check candidates like Rahul Sharma or Priya Mehta, or assign new tasks to my queue.`,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            quickReplies: ['Schedule an interview', 'Assign a task', 'View pending tasks'],
+            text: `I'm ready to help with candidates, tasks, and interviews.`,
+            timestamp: new Date().toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
           };
-          setChatMessages((prev) => [...prev, aiResponse]);
         }
+
+        setChatMessages((prev) => [...prev, aiResponse]);
       }, 700);
     },
-    [tasks, scheduleInterview, addTask]
+    []
   );
 
   const triggerAIAction = useCallback(
@@ -993,6 +1462,7 @@ const addCandidate = useCallback(
         tasks,
         candidates,
         interviews,
+        positions,
         activities,
         chatMessages,
         aiWorkingTasks,
@@ -1019,6 +1489,10 @@ const addCandidate = useCallback(
         triggerAIAction,
         addToast,
         removeToast,
+        updateInterview,
+        updateCandidate,
+        deleteCandidate,  
+        deleteInterview
       }}
     >
       {children}

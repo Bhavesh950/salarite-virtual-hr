@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Modal } from '@/components/common/Modal';
 import { useApp } from '@/context/AppContext';
 import { StatusBadge } from '@/components/common/StatusBadge';
@@ -22,11 +22,41 @@ export function CandidateDetailsModal() {
     selectedCandidate,
     setSelectedCandidate,
     updateCandidateStatus,
+    updateCandidate,
+    deleteCandidate,
     tasks,
     interviews,
     activities,
     setIsInterviewModalOpen,
   } = useApp();
+
+  const [isEditing, setIsEditing] = useState(false);
+
+const [editForm, setEditForm] = useState({
+  name: "",
+  email: "",
+  phone: "",
+  position: "",
+  experience: "",
+  skills: "",
+  notes: "",
+});
+
+useEffect(() => {
+  if (selectedCandidate) {
+    setEditForm({
+      name: selectedCandidate.name,
+      email: selectedCandidate.email,
+      phone: selectedCandidate.phone || "",
+      position: selectedCandidate.appliedFor,
+      experience: selectedCandidate.experience || "",
+      skills: selectedCandidate.skills.join(", "),
+      notes: selectedCandidate.notes || "",
+    });
+
+    setIsEditing(false);
+  }
+}, [selectedCandidate]);
 
   if (!selectedCandidate) return null;
 
@@ -85,24 +115,159 @@ export function CandidateDetailsModal() {
           </div>
 
           {/* Quick status switcher */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500 font-medium">Stage:</span>
-            <select
-              id="candidate-stage-selector"
-              value={selectedCandidate.status}
-              onChange={(e) =>
-                updateCandidateStatus(selectedCandidate.id, e.target.value as CandidateStatus)
-              }
-              className="text-xs font-medium px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-slate-900"
-            >
-              {statuses.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+  <button
+    onClick={() => setIsEditing((prev) => !prev)}
+    className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+  >
+    {isEditing ? "Cancel Edit" : "Edit"}
+  </button>
+
+  <button
+    onClick={async () => {
+      const confirmed = window.confirm(
+        `Are you sure you want to delete ${selectedCandidate.name}?`
+      );
+
+      if (!confirmed) return;
+
+      await deleteCandidate(selectedCandidate.id);
+    }}
+    className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-50 text-red-600 hover:bg-red-100"
+  >
+    Delete
+  </button>
+
+  <span className="text-xs text-slate-500 font-medium">
+    Stage:
+  </span>
+
+  <select
+    id="candidate-stage-selector"
+    value={selectedCandidate.status}
+    onChange={(e) =>
+      updateCandidateStatus(
+        selectedCandidate.id,
+        e.target.value as CandidateStatus
+      )
+    }
+    className="text-xs font-medium px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-800"
+  >
+    {statuses.map((s) => (
+      <option key={s} value={s}>
+        {s}
+      </option>
+    ))}
+  </select>
+</div>
         </div>
+        {isEditing && (
+  <div className="p-4 rounded-xl bg-white border border-indigo-200 space-y-4">
+    <h4 className="text-sm font-semibold text-slate-900">
+      Edit Candidate
+    </h4>
+
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <input
+        type="text"
+        value={editForm.name}
+        onChange={(e) =>
+          setEditForm({ ...editForm, name: e.target.value })
+        }
+        placeholder="Name"
+        className="px-3 py-2 text-sm border border-slate-200 rounded-lg"
+      />
+
+      <input
+        type="email"
+        value={editForm.email}
+        onChange={(e) =>
+          setEditForm({ ...editForm, email: e.target.value })
+        }
+        placeholder="Email"
+        className="px-3 py-2 text-sm border border-slate-200 rounded-lg"
+      />
+
+      <input
+        type="text"
+        value={editForm.phone}
+        onChange={(e) =>
+          setEditForm({ ...editForm, phone: e.target.value })
+        }
+        placeholder="Phone"
+        className="px-3 py-2 text-sm border border-slate-200 rounded-lg"
+      />
+
+      <input
+        type="text"
+        value={editForm.position}
+        onChange={(e) =>
+          setEditForm({ ...editForm, position: e.target.value })
+        }
+        placeholder="Applied Position"
+        className="px-3 py-2 text-sm border border-slate-200 rounded-lg"
+      />
+
+      <input
+        type="text"
+        value={editForm.experience}
+        onChange={(e) =>
+          setEditForm({ ...editForm, experience: e.target.value })
+        }
+        placeholder="Experience"
+        className="px-3 py-2 text-sm border border-slate-200 rounded-lg"
+      />
+
+      <input
+        type="text"
+        value={editForm.skills}
+        onChange={(e) =>
+          setEditForm({ ...editForm, skills: e.target.value })
+        }
+        placeholder="Skills (Python, FastAPI, SQL)"
+        className="px-3 py-2 text-sm border border-slate-200 rounded-lg"
+      />
+    </div>
+
+    <textarea
+      value={editForm.notes}
+      onChange={(e) =>
+        setEditForm({ ...editForm, notes: e.target.value })
+      }
+      placeholder="Notes / HR Assessment"
+      rows={3}
+      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg resize-none"
+    />
+
+    <div className="flex justify-end gap-2">
+      <button
+        onClick={() => setIsEditing(false)}
+        className="px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+      >
+        Cancel
+      </button>
+
+      <button
+        onClick={async () => {
+          await updateCandidate(selectedCandidate.id, {
+            name: editForm.name.trim(),
+            email: editForm.email.trim(),
+            phone: editForm.phone.trim(),
+            position: editForm.position.trim(),
+            experience: editForm.experience.trim(),
+            skills: editForm.skills.trim(),
+            notes: editForm.notes.trim(),
+          });
+
+          setIsEditing(false);
+        }}
+        className="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-900 text-white hover:bg-indigo-900"
+      >
+        Save Changes
+      </button>
+    </div>
+  </div>
+)}
 
         {/* Skills */}
         <div>

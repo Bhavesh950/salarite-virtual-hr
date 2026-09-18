@@ -40,6 +40,7 @@ class Interview(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     candidate_id = Column(Integer, nullable=False)
+    position = Column(String(100), nullable=False)
     interview_date = Column(DateTime, nullable=False)
     interviewer = Column(String(100), nullable=True)
     mode = Column(String(20), default="Video")
