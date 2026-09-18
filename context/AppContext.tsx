@@ -23,7 +23,7 @@ import {
   AI_CURRENT_TASKS,
 } from '@/lib/mock-data';
 
-const API_URL = "http://127.0.0.1:8000"; 
+const API_URL = "https://salarite-virtual-hr-ez83.onrender.com";
 
 interface AppContextType {
   user: {
